@@ -4,18 +4,31 @@ import rclpy
 from random import Random
 from rclpy.node import Node
 from geometry_msgs.msg import Point
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool
 
-Tab_Objet = []
+Tab_Objet = [[],[]]
 print(type(Tab_Objet))
-for i in range(10):
-    r = Random()
-    if r.random() <= 0.5:
-        Tab_Objet.append((i, "A"))
+for i in range(60):
+    randomColor = Random()
+    randomArea = Random()
+    if randomArea.random() <= 0.5:
+        if randomColor.random() <= 0.33:
+            Tab_Objet[0].append((i, "A"))
+        elif randomColor.random() >= 0.66:
+            Tab_Objet[0].append((i, "B"))
+        else :
+            Tab_Objet[0].append((i, "C"))
     else :
-        Tab_Objet.append((i, "B"))
+        if randomColor.random() <= 0.33:
+            Tab_Objet[1].append((i, "A"))
+        elif randomColor.random() >= 0.66:
+            Tab_Objet[1].append((i, "B"))
+        else :
+            Tab_Objet[1].append((i, "C"))
 print(Tab_Objet)
-print(Tab_Objet[0][0])
+print(Tab_Objet[0][0][1])
+#ici dans le service on va rajouter deux sous tableaux, un par zone d'arrivage et dans chaque objet on va avoir 4 zones d'arrivage
+#Donc le service va prendre en paramètre quelle zone de départ on a pris
 
 class MinimalService(Node):
 
@@ -24,24 +37,45 @@ class MinimalService(Node):
         super().__init__('minimal_service')
         #self.srv = self.create_service(AddTwoInts, 'add_two_ints', self.add_two_ints_callback)
         self.tab_Objet = Tab_Objet
-        self.srv = self.create_service(Trigger, 'Give_package', self.give_package_callback) #TODO change the 'any' to give Tab type
+        self.srv = self.create_service(SetBool, 'Give_package', self.give_package_callback) #TODO change the 'any' to give Tab type
 
     def give_package_callback(self, request, response):
         #response.sum = request.a + request.b
         #self.get_logger().info('Incoming request\na: %d b: %d' % (request.a, request.b))
-        if self.tab_Objet[0][1] == "A":
-            #TODO change the coord of the area
-            #response.x = -5.3
-            #response.y = 0.84
-            #response.z = 0.0
-            response.message = "-5.3 0.84 0.0"
-        else:
-            #TODO change the coord of the area
-            #response.x = -0.5
-            #response.y = -2.15
-            #response.z = 0.0
-            response.message = "-0.5 -2.15 0.0"
-        self.tab_Objet.pop(0)
+        print(self.tab_Objet)
+        if request.data == True:
+            if self.tab_Objet[0][0][1] == "A":
+                #TODO change the coord of the area
+                #response.x = -5.3
+                #response.y = 0.84
+                #response.z = 0.0
+                response.message = "-5.3 0.84 0.0"
+            elif self.tab_Objet[0][0][1] == "B":
+                response.message = "-0.5 -2.15 0.0"
+            else:
+                #TODO change the coord of the area
+                #response.x = -0.5
+                #response.y = -2.15
+                #response.z = 0.0
+                response.message = "-4.6 -2.47 0.0"
+            self.tab_Objet[0].pop(0)
+        else :
+            if self.tab_Objet[0][1][1] == "A":
+                #TODO change the coord of the area
+                #response.x = -5.3
+                #response.y = 0.84
+                #response.z = 0.0
+                response.message = "-5.3 0.84 0.0"
+            elif self.tab_Objet[0][1][1] == "B":
+                response.message = "-0.5 -2.15 0.0"
+            else:
+                #TODO change the coord of the area
+                #response.x = -0.5
+                #response.y = -2.15
+                #response.z = 0.0
+                response.message = "-4.6 -2.47 0.0"
+            self.tab_Objet[1].pop(0)
+        print(self.tab_Objet)
         self.get_logger().info(f"Outgoing request :  f{response}")
         return response
 
