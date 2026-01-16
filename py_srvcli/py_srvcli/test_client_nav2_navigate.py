@@ -3,22 +3,24 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool
 import time
 from tf2_ros import Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped
 import math
+from random import Random
 
 class MinimalClientAsync(Node):
     def __init__(self):
         super().__init__('minimal_client_async')
-        self.cli = self.create_client(Trigger, 'Give_package')
+        self.cli = self.create_client(SetBool, 'Give_package')
         while not self.cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Service not available, waiting again...')
-        self.req = Trigger.Request()
+        self.req = SetBool.Request()
 
-    def send_request(self):
+    def send_request(self, trigger):
         """Appelle le service et attend la réponse de manière synchrone."""
+        self.req.data = trigger
         future = self.cli.call_async(self.req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
@@ -125,14 +127,23 @@ class Nav2Client(Node):
 def main(args=None):
     rclpy.init(args=args)
     minimal_client = MinimalClientAsync()
-    response = minimal_client.send_request()
+    r = Random()
+    if r.random() <= 0.5:
+        response = minimal_client.send_request(True)
+    else:
+        response = minimal_client.send_request(False)
     while response != None:
         minimal_client.get_logger().info(f"Answer from service: {response}")
         pointTab = response.message.split(" ")
         node = Nav2Client()
         node.send_goal(float(pointTab[0]), float(pointTab[1]),float(pointTab[2]))
-        node.send_goal(-1.97, -0.73, 0.0)
-        response = minimal_client.send_request()
+        r = Random()
+        if r.random() <= 0.5:
+            node.send_goal(1.7399678230285645, -0.4628455936908722, 0.0)
+            response = minimal_client.send_request(True)
+        else:
+            node.send_goal(1.6670589447021484, 0.6065198183059692, 0.0)
+            response = minimal_client.send_request(False)
         #rajouter une condition pour get la position du robot puis selon la zone, appelle le service
     #node.send_goal return 4 for everything is fine and 6 for an error 
     #add an loop for try again after 6
