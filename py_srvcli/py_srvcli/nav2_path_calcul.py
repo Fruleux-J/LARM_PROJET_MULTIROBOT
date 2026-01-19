@@ -83,7 +83,7 @@ class Nav2PathEvaluator(Node):
         self.get_logger().info(f"Distance totale estimée: {distance:.2f} m")
         self.distance += distance
         self.iteration += 1
-        if self.iteration == len(self.path_list):
+        if self.iteration == len(self.waiting_list) + 2:
             msg = String()
             msg.data = str(self.id_colis) + " " + str(44)  + " " +str(self.distance) #TODO get the ROS_DOMAIN_ID dynamicly
             self.id_colis = -1
@@ -98,16 +98,40 @@ class Nav2PathEvaluator(Node):
         self.id_colis = Tab_String[0]
         point1 = Tab_String[1]
         point2 = Tab_String[2]
+        
         print(point2[1:-1].split(" "))
         print(point2[1:-1].split(" ")[0])
+
+        pathList=[]
+        for i in range(len(self.waiting_list)):
+            path=ComputePathToPose.Goal()
+            path.goal = PoseStamped()
+            path.start = PoseStamped()
+            if i == 0:
+                path.use_start = False
+            else:
+                path.start.pose.position.x = float(self.waiting_list[i])
+                path.start.pose.position.y = float(self.waiting_list[i])
+                path.start.pose.orientation.w = 1.0
+                path.start.header.frame_id = 'map'
+                path.start.header.stamp = self.get_clock().now().to_msg()
+            path.goal.pose.position.x = float(self.waiting_list[i])
+            path.goal.pose.position.y = float(self.waiting_list[i])
+            path.goal.pose.orientation.w = 1.0
+            path.goal.header.frame_id = 'map'
+            path.goal.header.stamp = self.get_clock().now().to_msg()
+            self.send_goal_future = self.path_client.send_goal_async(point)
+            self.send_goal_future.add_done_callback(self.path_response_callback)
+
+
         path1=ComputePathToPose.Goal()
         
         
         if len(self.waiting_list) != 0:
             path1.start = PoseStamped()
             path1.use_start = True
-            path1.start.pose.position.x = self.waiting_list[-1].goal.pose.position.x #attention si c'est vide
-            path1.start.pose.position.y = self.waiting_list[-1].goal.pose.position.y
+            path1.start.pose.position.x = self.waiting_list[-1].pose.position.x #attention si c'est vide
+            path1.start.pose.position.y = self.waiting_list[-1].pose.position.y
             path1.start.pose.orientation.w = 1.0
         else:
             path1.use_start = False
@@ -117,7 +141,7 @@ class Nav2PathEvaluator(Node):
         path1.goal.pose.position.x = float(point1[1:-1].split(" ")[0])
         path1.goal.pose.position.y = float(point1[1:-1].split(" ")[1])
         path1.goal.pose.orientation.w = 1.0
-        self.path_list.append(path1)
+        pathList.append(path1)
         path2=ComputePathToPose.Goal()
         path2.use_start = True
 
@@ -131,9 +155,9 @@ class Nav2PathEvaluator(Node):
         path2.goal.pose.position.x = float(point2[1:-1].split(" ")[0])
         path2.goal.pose.position.y = float(point2[1:-1].split(" ")[1])
         path2.goal.pose.orientation.w = 1.0
-        self.path_list.append(path2)
+        pathList.append(path2)
 
-        for point in self.path_list:
+        for point in pathList:
             if point.use_start == True:
                 point.start.header.frame_id = 'map'
                 point.start.header.stamp = self.get_clock().now().to_msg()
