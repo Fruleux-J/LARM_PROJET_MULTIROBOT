@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 
-from nav2_msgs.action import ComputePathToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
 
@@ -20,20 +20,27 @@ class Nav2PathEvaluator(Node):
             'compute_path_to_pose'
         )
 
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.subscription = self.create_subscription(
             String,
-            '/points',
+            '/start_bid',
             self.listener_callback,
             10
         )
 
+        self.subscription_win_bid = self.create_subscription(
+            String,
+            '/win_bid',
+            self.listener_win_bid_callback,
+            10
+        )
         # Publisher de distance
         self.distance_pub = self.create_publisher(
             String,
-            '/cost',
+            '/bid',
             10
         )
         self.id_colis = -1
@@ -41,6 +48,7 @@ class Nav2PathEvaluator(Node):
         self.path_list = []
         self.iteration = 0
         self.distance = 0.0
+        self.current_goal = None
         self.send_goal()
 
 
@@ -104,19 +112,23 @@ class Nav2PathEvaluator(Node):
 
         pathList=[]
         for i in range(len(self.waiting_list)):
+            tmpI = self.waiting_list[i]
+            coord = tmpI.split(" ")[1:-1]
             path=ComputePathToPose.Goal()
             path.goal = PoseStamped()
             path.start = PoseStamped()
             if i == 0:
                 path.use_start = False
             else:
-                path.start.pose.position.x = float(self.waiting_list[i])
-                path.start.pose.position.y = float(self.waiting_list[i])
+                tmp = self.waiting_list[i]
+                coord = tmp.split(" ")[1:-1]
+                path.start.pose.position.x = float(coord[0])
+                path.start.pose.position.y = float(coord[1])
                 path.start.pose.orientation.w = 1.0
                 path.start.header.frame_id = 'map'
                 path.start.header.stamp = self.get_clock().now().to_msg()
-            path.goal.pose.position.x = float(self.waiting_list[i])
-            path.goal.pose.position.y = float(self.waiting_list[i])
+            path.goal.pose.position.x = float(coord[0])
+            path.goal.pose.position.y = float(coord[1])
             path.goal.pose.orientation.w = 1.0
             path.goal.header.frame_id = 'map'
             path.goal.header.stamp = self.get_clock().now().to_msg()
@@ -166,6 +178,47 @@ class Nav2PathEvaluator(Node):
             self.send_goal_future = self.path_client.send_goal_async(point)
             self.send_goal_future.add_done_callback(self.path_response_callback)
         #return response #je pense qu'il faut lancer le calcul ici pour la distance 
+
+    def listener_win_bid_callback(self, msg):
+        Tab_String = str(msg.data).split(",")
+        self.id_colis = Tab_String[0]
+        point1 = Tab_String[1]
+        point2 = Tab_String[2]
+        self.waiting_list.append(point1)
+        self.waiting_list.append(point2)
+        if self.current_goal is None:
+            self.send_navigation_goal(self.waiting_list.pop(0))
+
+    def send_navigation_goal(self, point):
+        goal_msg = NavigateToPose.Goal()
+        coord = point.split(" ")[1:-1]
+        print(point)
+        print(type(point))
+        print(point.split(" "))
+        goal_msg.pose.pose.position.x = float(coord[0])
+        goal_msg.pose.pose.position.y = float(coord[1])
+        goal_msg.pose.pose.orientation.w = 1.0
+        goal_msg.pose.header.frame_id = 'map'
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        self.current_goal = point
+        self.nav_client.send_goal_async(goal_msg).add_done_callback(self.nav_response_callback)
+    
+    def nav_response_callback(self, future):
+        print("point")
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn("Navigation goal rejected")
+            self.current_goal = None
+            return
+        goal_handle.get_result_async().add_done_callback(self.nav_result_callback)
+
+    def nav_result_callback(self, future):
+        result = future.result().result
+        self.get_logger().info(f"Navigation completed")
+        self.current_goal = None
+        if self.waiting_list:
+            self.send_navigation_goal(self.waiting_list.pop(0))
+
 
 def main(args=None):
     rclpy.init(args=args)
