@@ -132,7 +132,7 @@ class Nav2PathEvaluator(Node):
             path.goal.pose.orientation.w = 1.0
             path.goal.header.frame_id = 'map'
             path.goal.header.stamp = self.get_clock().now().to_msg()
-            self.send_goal_future = self.path_client.send_goal_async(point)
+            self.send_goal_future = self.path_client.send_goal_async(path)
             self.send_goal_future.add_done_callback(self.path_response_callback)
 
 
@@ -142,8 +142,10 @@ class Nav2PathEvaluator(Node):
         if len(self.waiting_list) != 0:
             path1.start = PoseStamped()
             path1.use_start = True
-            path1.start.pose.position.x = self.waiting_list[-1].pose.position.x #attention si c'est vide
-            path1.start.pose.position.y = self.waiting_list[-1].pose.position.y
+            TMP = self.waiting_list[-1]
+            TMPcoord = TMP.split(" ")[1:-1]
+            path1.start.pose.position.x = float(TMPcoord[0]) #attention si c'est vide
+            path1.start.pose.position.y = float(TMPcoord[1])
             path1.start.pose.orientation.w = 1.0
         else:
             path1.use_start = False
@@ -175,12 +177,14 @@ class Nav2PathEvaluator(Node):
                 point.start.header.stamp = self.get_clock().now().to_msg()
             point.goal.header.frame_id = 'map'
             point.goal.header.stamp = self.get_clock().now().to_msg()
-            self.send_goal_future = self.path_client.send_goal_async(point)
+            self.send_goal_future = self.path_client.send_goal_async(path2)
             self.send_goal_future.add_done_callback(self.path_response_callback)
         #return response #je pense qu'il faut lancer le calcul ici pour la distance 
 
     def listener_win_bid_callback(self, msg):
         Tab_String = str(msg.data).split(",")
+        print(Tab_String)
+        print(msg)
         self.id_colis = Tab_String[0]
         point1 = Tab_String[1]
         point2 = Tab_String[2]
