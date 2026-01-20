@@ -6,6 +6,7 @@ from rclpy.context import Context
 from rclpy.executors import MultiThreadedExecutor
 from random import random
 from multi_robot_larm.msg import Bid, Package
+from geometry_msgs.msg import PoseStamped
 
 
 # ==========================================================
@@ -58,7 +59,7 @@ class FactoryNode(Node):
 
         self.usine.start_auction(colis_id, arrival, delivery)
 
-        self.get_logger().info(f"[POINTS] {msg.data}")
+        self.get_logger().info(f"[POINTS] {msg}")
         self.index += 1
 
     def on_enchere_received(self, msg: Bid):
@@ -161,15 +162,39 @@ class Usine:
 
 def generate_packages(n=20):
     
-    pickup_A = POseStamp 
-    "1.73 -0.46 0.0"
-    pickup_B = "1.66 0.60 0.0"
+    pickup_A = PoseStamped()
+    pickup_A.pose.position.x = 1.73
+    pickup_A.pose.position.y = -0.46
+    pickup_A.pose.position.z = 0.0
+    #"1.73 -0.46 0.0"
+    #pickup_B = "1.66 0.60 0.0"
 
-    deliveries = [
+    pickup_B = PoseStamped()
+    pickup_B.pose.position.x = 1.66
+    pickup_B.pose.position.y = 0.6
+    pickup_B.pose.position.z = 0.0
+
+    delivery1 = PoseStamped()
+    delivery1.pose.position.x = -5.3
+    delivery1.pose.position.y = 0.84
+    delivery1.pose.position.z = 0.0
+
+    delivery2 = PoseStamped()
+    delivery2.pose.position.x = -0.5
+    delivery2.pose.position.y = -2.15
+    delivery2.pose.position.z = 0.0
+
+    delivery3 = PoseStamped()
+    delivery3.pose.position.x = -4.6
+    delivery3.pose.position.y = -2.15
+    delivery3.pose.position.z = 0.0
+
+    '''deliveries = [
         "-5.3 0.84 0.0",
         "-0.5 -2.15 0.0",
         "-4.6 -2.47 0.0",
-    ]
+    ]'''
+    deliveries=[delivery1,delivery2,delivery3]
 
     messages = []
 
