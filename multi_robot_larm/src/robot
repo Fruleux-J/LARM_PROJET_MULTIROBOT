@@ -104,7 +104,7 @@ class Nav2PathEvaluator(Node):
         if self.iteration == len(self.waiting_list) + 2:
             msg = Bid()
             msg.id = self.id_colis
-            msg.ros_domain_id = ros_domain_id
+            msg.ros_domain_id = int(ros_domain_id)
             msg.cost = self.distance
             #msg.data = str(self.id_colis) + " " + str(ros_domain_id)  + " " +str(self.distance) #TODO get the ROS_DOMAIN_ID dynamicly
             self.id_colis = -1
@@ -122,7 +122,7 @@ class Nav2PathEvaluator(Node):
         #point1 = Tab_String[1]
         #point2 = Tab_String[2]
         self.id_colis = msg.id
-        point1= msg.derparture
+        point1= msg.departure
         point2=msg.arrival
         #print(point2[1:-1].split(" "))
         #print(point2[1:-1].split(" ")[0])
@@ -142,7 +142,7 @@ class Nav2PathEvaluator(Node):
                 path.start.header.frame_id = 'map'
                 path.start.header.stamp = self.get_clock().now().to_msg()
             path.goal.pose.position.x = self.waiting_list[i].pose.position.x
-            path.goal.pose.position.y = self.waiting_list[i].pose.position.x
+            path.goal.pose.position.y = self.waiting_list[i].pose.position.y
             path.goal.pose.orientation.w = 1.0
             path.goal.header.frame_id = 'map'
             path.goal.header.stamp = self.get_clock().now().to_msg()
@@ -209,7 +209,7 @@ class Nav2PathEvaluator(Node):
         #coord = point.split(" ")[1:-1]
         print(point)
         print(type(point))
-        print(point.split(" "))
+        #print(point.split(" "))
         goal_msg.pose.pose.position.x = point.pose.position.x
         goal_msg.pose.pose.position.y = point.pose.position.y
         goal_msg.pose.pose.orientation.w = 1.0
