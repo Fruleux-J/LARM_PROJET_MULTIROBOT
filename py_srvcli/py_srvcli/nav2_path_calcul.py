@@ -54,6 +54,7 @@ class Nav2PathEvaluator(Node):
         self.send_goal()
 
 
+
     def send_goal(self):
         self.path_client.wait_for_server()
         self.nav_client.wait_for_server()
