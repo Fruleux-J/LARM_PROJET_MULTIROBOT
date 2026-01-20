@@ -8,6 +8,8 @@ from std_msgs.msg import String
 
 from tf2_ros import Buffer, TransformListener
 
+import os
+
 
 class Nav2PathEvaluator(Node):
 
@@ -54,6 +56,7 @@ class Nav2PathEvaluator(Node):
 
     def send_goal(self):
         self.path_client.wait_for_server()
+        self.nav_client.wait_for_server()
 
 
     def path_response_callback(self, future):
@@ -63,7 +66,7 @@ class Nav2PathEvaluator(Node):
             self.get_logger().error("Le planner a refusé la requête")
             return
 
-        self.get_logger().info("Chemin accepté, attente du résultat")
+        #self.get_logger().info("Chemin accepté, attente du résultat")
         self.result_future = goal_handle.get_result_async()
         self.result_future.add_done_callback(self.path_result_callback)
 
@@ -72,7 +75,7 @@ class Nav2PathEvaluator(Node):
         result = future.result().result
         path = result.path
 
-        self.get_logger().info(f"Nombre de points: {len(path.poses)}")
+        #self.get_logger().info(f"Nombre de points: {len(path.poses)}")
 
         distance = 0.0
         prev = None
@@ -88,13 +91,20 @@ class Nav2PathEvaluator(Node):
 
             prev = (x, y)
 
-        self.get_logger().info(f"Distance totale estimée: {distance:.2f} m")
+        #self.get_logger().info(f"Distance estimée: {distance:.2f} m")
         self.distance += distance
         self.iteration += 1
+        #print(self.iteration)
+        #print(self.distance)
+
+        ros_domain_id = os.environ.get('ROS_DOMAIN_ID','Non défini')
+
         if self.iteration == len(self.waiting_list) + 2:
             msg = String()
-            msg.data = str(self.id_colis) + " " + str(44)  + " " +str(self.distance) #TODO get the ROS_DOMAIN_ID dynamicly
+            msg.data = str(self.id_colis) + " " + str(ros_domain_id)  + " " +str(self.distance) #TODO get the ROS_DOMAIN_ID dynamicly
             self.id_colis = -1
+            self.get_logger().info(f"Distance totale estimée: {self.distance:.2f}")
+            self.get_logger().info(f"Message envoyé: {msg}")
             print(f"distance total : {self.distance}")
             self.iteration = 0
             self.distance_pub.publish(msg)
@@ -111,6 +121,7 @@ class Nav2PathEvaluator(Node):
         print(point2[1:-1].split(" ")[0])
 
         pathList=[]
+        print(f"waiting_list : {self.waiting_list}")
         for i in range(len(self.waiting_list)):
             tmpI = self.waiting_list[i]
             coord = tmpI.split(" ")[1:-1]
@@ -177,7 +188,7 @@ class Nav2PathEvaluator(Node):
                 point.start.header.stamp = self.get_clock().now().to_msg()
             point.goal.header.frame_id = 'map'
             point.goal.header.stamp = self.get_clock().now().to_msg()
-            self.send_goal_future = self.path_client.send_goal_async(path2)
+            self.send_goal_future = self.path_client.send_goal_async(point)
             self.send_goal_future.add_done_callback(self.path_response_callback)
         #return response #je pense qu'il faut lancer le calcul ici pour la distance 
 
@@ -191,7 +202,7 @@ class Nav2PathEvaluator(Node):
         self.waiting_list.append(point1)
         self.waiting_list.append(point2)
         if self.current_goal is None:
-            self.send_navigation_goal(self.waiting_list.pop(0))
+            self.send_navigation_goal(self.waiting_list[0])
 
     def send_navigation_goal(self, point):
         goal_msg = NavigateToPose.Goal()
@@ -210,6 +221,7 @@ class Nav2PathEvaluator(Node):
     def nav_response_callback(self, future):
         print("point")
         goal_handle = future.result()
+        status = goal_handle.status
         if not goal_handle.accepted:
             self.get_logger().warn("Navigation goal rejected")
             self.current_goal = None
@@ -217,11 +229,22 @@ class Nav2PathEvaluator(Node):
         goal_handle.get_result_async().add_done_callback(self.nav_result_callback)
 
     def nav_result_callback(self, future):
-        result = future.result().result
-        self.get_logger().info(f"Navigation completed")
+        result = future.result()
+        status = result.status
+
+        if status == 4:  # STATUS_SUCCEEDED
+            self.get_logger().info("Robot arrivé à destination ✅")
+
+            if self.waiting_list and self.waiting_list[0] == self.current_goal:
+                self.waiting_list.pop(0)   # ✅ ICI ET SEULEMENT ICI
+
+        else:
+            self.get_logger().warn(f"Navigation échouée, status={status}")
+
         self.current_goal = None
+
         if self.waiting_list:
-            self.send_navigation_goal(self.waiting_list.pop(0))
+            self.send_navigation_goal(self.waiting_list[0])
 
 
 def main(args=None):
