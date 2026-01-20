@@ -81,10 +81,10 @@ class FactoryNode(Node):
 # ==========================================================
 
 class Usine:
-    def __init__(self, auction_duration=3.0):
+    def __init__(self, auction_duration=5.0):
         self.auction_duration = auction_duration
         self.auctions = {}
-        self.result_publishers = []
+        self.result_publishers = {}
 
     def start_auction(self, colis_id, arrival, delivery):
         if colis_id in self.auctions:
@@ -132,26 +132,29 @@ class Usine:
             auction["offers"], key=lambda x: x[1]
         )
 
+        print(f"[USINE] Enchère finite. Enchères récues : ")
+        for auction_print in auction["offers"] :
+            print(f"[USINE] {auction_print}")
+
         print(
             f"[USINE] Colis {colis_id} attribué à robot {winner_ros} "
             f"pour {best_price}"
         )
 
-        self.publish_result(colis_id, auction)
+        self.publish_result(colis_id, auction, winner_ros)
 
-    def publish_result(self, colis_id, auction):
+    def publish_result(self, colis_id, auction, winner_ros):
         d = auction["delivery"]
         a = auction["arrival"]
 
         msg = (
-            f"{colis_id} "
-            f"{d[0]} {d[1]} {d[2]} "
-            f"{a[0]} {a[1]} {a[2]}"
+            f"{colis_id}, "
+            f"{d}, "
+            f"{a},"
         )
 
-        for pub in self.result_publishers:
-            pub(msg)
-
+        pub = self.result_publishers[winner_ros]
+        pub(msg)
 
 # ==========================================================
 # DATA GENERATION
@@ -190,14 +193,14 @@ def main():
     print(messages)
 
     nodes = [
-        FactoryNode(28, messages, usine, 2.0),
-        FactoryNode(40, messages, usine, 3.0),
+        FactoryNode(44, messages, usine, 6.0),
+        FactoryNode(40, messages, usine, 6.0),
     ]
 
     executor = MultiThreadedExecutor()
     for node in nodes:
         executor.add_node(node)
-        usine.result_publishers.append(node.publish_result)
+        usine.result_publishers[node.domain_id] = node.publish_result
 
     nodes[0].create_timer(0.2, usine.check_auctions)
 
