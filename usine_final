@@ -1,0 +1,213 @@
+#!/usr/bin/python3
+import time
+import rclpy
+from rclpy.node import Node
+from rclpy.context import Context
+from rclpy.executors import MultiThreadedExecutor
+from std_msgs.msg import String
+from random import random
+
+
+# ==========================================================
+# ROS NODE
+# ==========================================================
+
+class FactoryNode(Node):
+    def __init__(
+        self,
+        domain_id: int,
+        messages: list,
+        usine,
+        pub_freq: float,
+    ):
+        context = Context()
+        context.init(domain_id=domain_id)
+
+        super().__init__(f"usine_{domain_id}", context=context)
+
+        self.domain_id = domain_id
+        self.messages = messages
+        self.index = 0
+        self.usine = usine
+
+        self.points_pub = self.create_publisher(String, "start_bid", 10)
+        self.result_pub = self.create_publisher(String, "win_bid", 10)
+
+        self.create_subscription(
+            String,
+            "bid",
+            self.on_enchere_received,
+            10
+        )
+
+        self.create_timer(pub_freq, self.publish_point)
+
+    def publish_point(self):
+        if self.index >= len(self.messages):
+            return
+    
+        colis_id, arrival, delivery = self.messages[self.index]
+
+        msg = String()
+        msg.data = f"{colis_id}, {arrival}, {delivery}"
+        
+        self.points_pub.publish(msg)
+
+        self.usine.start_auction(colis_id, arrival, delivery)
+
+        self.get_logger().info(f"[POINTS] {msg.data}")
+        self.index += 1
+
+    def on_enchere_received(self, msg: String):
+        try:
+            colis_id, ros_id, price = msg.data.split()
+            self.usine.on_bid(
+                int(colis_id),
+                int(ros_id),
+                float(price)
+            )
+        except ValueError:
+            self.get_logger().error(f"Message enchere invalide: {msg.data}")
+
+    def publish_result(self, data: str):
+        msg = String()
+        msg.data = data
+        self.result_pub.publish(msg)
+        self.get_logger().info(f"[RESULT] {data}")
+
+
+# ==========================================================
+# USINE (LOGIQUE MÉTIER)
+# ==========================================================
+
+class Usine:
+    def __init__(self, auction_duration=3.0):
+        self.auction_duration = auction_duration
+        self.auctions = {}
+        self.result_publishers = []
+
+    def start_auction(self, colis_id, arrival, delivery):
+        if colis_id in self.auctions:
+            return
+
+        self.auctions[colis_id] = {
+            "start_time": time.time(),
+            "arrival": arrival,
+            "delivery": delivery,
+            "offers": [],
+            "closed": False
+        }
+
+        print(f"[USINE] Enchère démarrée pour colis {colis_id}")
+
+    def on_bid(self, colis_id, ros_id, price):
+        if colis_id not in self.auctions:
+            return
+
+        auction = self.auctions[colis_id]
+        if auction["closed"]:
+            return
+
+        auction["offers"].append((ros_id, price))
+
+    def check_auctions(self):
+        now = time.time()
+
+        for colis_id, auction in self.auctions.items():
+            if auction["closed"]:
+                continue
+
+            if now - auction["start_time"] >= self.auction_duration:
+                self.close_auction(colis_id)
+
+    def close_auction(self, colis_id):
+        auction = self.auctions[colis_id]
+        auction["closed"] = True
+
+        if not auction["offers"]:
+            print(f"[USINE] Aucune enchère pour colis {colis_id}")
+            return
+
+        winner_ros, best_price = min(
+            auction["offers"], key=lambda x: x[1]
+        )
+
+        print(
+            f"[USINE] Colis {colis_id} attribué à robot {winner_ros} "
+            f"pour {best_price}"
+        )
+
+        self.publish_result(colis_id, auction)
+
+    def publish_result(self, colis_id, auction):
+        d = auction["delivery"]
+        a = auction["arrival"]
+
+        msg = (
+            f"{colis_id} "
+            f"{d[0]} {d[1]} {d[2]} "
+            f"{a[0]} {a[1]} {a[2]}"
+        )
+
+        for pub in self.result_publishers:
+            pub(msg)
+
+
+# ==========================================================
+# DATA GENERATION
+# ==========================================================
+
+def generate_packages(n=20):
+    pickup_A = "1.73 -0.46 0.0"
+    pickup_B = "1.66 0.60 0.0"
+
+    deliveries = [
+        "-5.3 0.84 0.0",
+        "-0.5 -2.15 0.0",
+        "-4.6 -2.47 0.0",
+    ]
+
+    messages = []
+
+    for i in range(n):
+        arrival = pickup_A if random() < 0.5 else pickup_B
+        delivery = deliveries[int(random() * len(deliveries))]
+        messages.append((i, arrival, delivery))
+
+    return messages
+
+
+# ==========================================================
+# MAIN
+# ==========================================================
+
+def main():
+    rclpy.init()
+
+    usine = Usine(auction_duration=3.0)
+    messages = generate_packages(30)
+
+    print(messages)
+
+    nodes = [
+        FactoryNode(28, messages, usine, 2.0),
+        FactoryNode(40, messages, usine, 3.0),
+    ]
+
+    executor = MultiThreadedExecutor()
+    for node in nodes:
+        executor.add_node(node)
+        usine.result_publishers.append(node.publish_result)
+
+    nodes[0].create_timer(0.2, usine.check_auctions)
+
+    try:
+        executor.spin()
+    finally:
+        for node in nodes:
+            node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
