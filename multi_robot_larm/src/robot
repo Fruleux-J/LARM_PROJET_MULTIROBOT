@@ -6,11 +6,10 @@ from rclpy.action import ActionClient
 from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from geometry_msgs.msg import PoseStamped
 
-from tf2_ros import Buffer, TransformListener
-from multi_robot_larm.msg import Bid, Package
+from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
+from multi_robot_larm.msg import Bid, Package, Pose
 
 import os
-
 
 class Nav2PathEvaluator(Node):
 
@@ -46,6 +45,16 @@ class Nav2PathEvaluator(Node):
             '/bid',
             10
         )
+
+        self.pose_pub = self.create_publisher(
+            Pose,
+            '/robot_pose',
+            10
+        )
+
+        # Publish at 10 Hz
+        self.pose_timer = self.create_timer(0.1, self.publish_robot_pose)
+
         self.id_colis = -1
         self.waiting_list = []
         self.path_list = []
@@ -55,7 +64,34 @@ class Nav2PathEvaluator(Node):
         self.send_goal()
 
 
+    def publish_robot_pose(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',          # target frame
+                'base_link',    # source frame (or 'base_footprint')
+                rclpy.time.Time()
+            )
 
+            pose = PoseStamped()
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.frame_id = 'map'
+
+            pose.pose.position.x = transform.transform.translation.x
+            pose.pose.position.y = transform.transform.translation.y
+            pose.pose.position.z = transform.transform.translation.z
+
+            pose.pose.orientation = transform.transform.rotation
+
+            msg = Pose()
+            ros_domain_id = os.environ.get("ROS_DOMAIN_ID", "Non défini")
+            msg.ros_domain_id = int(ros_domain_id) if ros_domain_id is not None else -1
+            msg.pose = pose
+
+            self.pose_pub.publish(msg)
+
+        except (LookupException, ConnectivityException, ExtrapolationException):
+            self.get_logger().warn('TF lookup failed for robot pose')
+    
     def send_goal(self):
         self.path_client.wait_for_server()
         self.nav_client.wait_for_server()
