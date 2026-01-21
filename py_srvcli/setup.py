@@ -23,7 +23,6 @@ setup(
             'service = py_srvcli.service_member_function:main',
             'client = py_srvcli.client_member_function:main',
             'marker_visualizer = py_srvcli.marker_visualizer:main',
-            'robot_pose_bridge = py_srvcli.robot_pose_bridge:main',
         ],
     },
 )
