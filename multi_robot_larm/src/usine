@@ -261,7 +261,7 @@ def main():
     rclpy.init()
 
     usine = Usine(auction_duration=3.0)
-    messages = generate_packages(30)
+    messages = generate_packages(args.input_file,30)
 
     print(messages)
 
