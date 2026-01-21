@@ -26,7 +26,7 @@ import re
 ZONES = {
     'A': {'position': (-5.3, 0.84, 0.0), 'color': (1.0, 0.0, 0.0, 0.8)},   # Red
     'B': {'position': (-0.5, -2.15, 0.0), 'color': (0.0, 1.0, 0.0, 0.8)},  # Green
-    'C': {'position': (-4.6, -2.47, 0.0), 'color': (0.0, 0.0, 1.0, 0.8)},  # Blue
+    'C': {'position': (-4.6, -2.15, 0.0), 'color': (0.0, 0.0, 1.0, 0.8)},  # Blue
 }
 
 # Home positions (pickup locations)
@@ -45,6 +45,10 @@ DEFAULT_ROBOT_COLOR = (0.5, 0.5, 0.5, 1.0)  # Gray for unknown robots
 
 # Domains to subscribe to
 ROBOT_DOMAINS = [40, 44]
+
+# Task states
+TASK_STATE_GOING_TO_PICKUP = 'pickup'
+TASK_STATE_GOING_TO_DELIVERY = 'delivery'
 
 
 class DomainBridge:
@@ -197,6 +201,115 @@ class DomainBridge:
             self.thread.join(timeout=2.0)
 
 
+class WinBidBridge:
+    """Bridge to receive win_bid messages from a specific domain via subprocess."""
+
+    def __init__(self, domain_id, win_bid_callback, logger):
+        self.domain_id = domain_id
+        self.win_bid_callback = win_bid_callback
+        self.logger = logger
+        self.process = None
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        """Start the subprocess bridge."""
+        self.running = True
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        """Run subprocess to echo win_bid topic and parse output."""
+        try:
+            cmd = f'''bash -c "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && export ROS_DOMAIN_ID={self.domain_id} && ros2 topic echo /win_bid --no-arr"'''
+
+            self.process = subprocess.Popen(
+                cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
+            )
+
+            self.logger.info(f'Domain {self.domain_id} win_bid bridge started')
+
+            buffer = []
+            for line in self.process.stdout:
+                if not self.running:
+                    break
+
+                line = line.rstrip()
+                if line == '---':
+                    if buffer:
+                        self._parse_message(buffer)
+                        buffer = []
+                else:
+                    buffer.append(line)
+
+        except Exception as e:
+            self.logger.error(f'Domain {self.domain_id} win_bid bridge error: {e}')
+        finally:
+            self._cleanup()
+
+    def _parse_message(self, lines):
+        """Parse win_bid message (Package type: id, departure, arrival)."""
+        try:
+            text = '\n'.join(lines)
+
+            # Extract package id
+            id_match = re.search(r'^id:\s*(\d+)', text, re.MULTILINE)
+            package_id = int(id_match.group(1)) if id_match else -1
+
+            # Extract departure position
+            departure_match = re.search(
+                r'departure:.*?position:\s*\n\s*x:\s*([-\d.]+)\s*\n\s*y:\s*([-\d.]+)\s*\n\s*z:\s*([-\d.]+)',
+                text, re.DOTALL
+            )
+            departure = None
+            if departure_match:
+                departure = (
+                    float(departure_match.group(1)),
+                    float(departure_match.group(2)),
+                    float(departure_match.group(3))
+                )
+
+            # Extract arrival position
+            arrival_match = re.search(
+                r'arrival:.*?position:\s*\n\s*x:\s*([-\d.]+)\s*\n\s*y:\s*([-\d.]+)\s*\n\s*z:\s*([-\d.]+)',
+                text, re.DOTALL
+            )
+            arrival = None
+            if arrival_match:
+                arrival = (
+                    float(arrival_match.group(1)),
+                    float(arrival_match.group(2)),
+                    float(arrival_match.group(3))
+                )
+
+            if departure and arrival:
+                self.win_bid_callback(self.domain_id, package_id, departure, arrival)
+
+        except Exception as e:
+            self.logger.debug(f'Win bid parse error: {e}')
+
+    def _cleanup(self):
+        """Clean up subprocess."""
+        if self.process:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+    def stop(self):
+        """Stop the bridge."""
+        self.running = False
+        self._cleanup()
+        if self.thread:
+            self.thread.join(timeout=2.0)
+
+
 class MarkerVisualizer(Node):
     def __init__(self):
         super().__init__('marker_visualizer')
@@ -221,8 +334,14 @@ class MarkerVisualizer(Node):
         self.robot_poses = {}  # Dict: {robot_id: PoseStamped}
         self.poses_lock = threading.Lock()
 
+        # Robot tasks: {robot_id: {'state': 'pickup'/'delivery', 'package_id': int,
+        #                          'pickup': (x,y,z), 'delivery': (x,y,z), 'tasks': [(pickup, delivery), ...]}}
+        self.robot_tasks = {}
+        self.tasks_lock = threading.Lock()
+
         # Domain bridges
         self.domain_bridges = []
+        self.win_bid_bridges = []
 
         # Timer for regular marker updates (2 Hz)
         self.create_timer(0.5, self.update_and_publish)
@@ -233,6 +352,7 @@ class MarkerVisualizer(Node):
 
         # Start domain bridges
         self._start_domain_bridges()
+        self._start_win_bid_bridges()
 
     def _start_domain_bridges(self):
         """Start bridges for each robot domain."""
@@ -245,13 +365,98 @@ class MarkerVisualizer(Node):
             bridge.start()
             self.domain_bridges.append(bridge)
 
+    def _start_win_bid_bridges(self):
+        """Start win_bid bridges for each robot domain."""
+        for domain_id in ROBOT_DOMAINS:
+            bridge = WinBidBridge(
+                domain_id,
+                self.win_bid_callback,
+                self.get_logger()
+            )
+            bridge.start()
+            self.win_bid_bridges.append(bridge)
+
+    def win_bid_callback(self, robot_id, package_id, departure, arrival):
+        """Handle incoming win_bid message - robot assigned a package.
+
+        In the Package message from usine:
+        - departure = pickup point (Home 1/2)
+        - arrival = delivery zone (Zone A/B/C)
+        """
+        pickup = departure
+        delivery = arrival
+
+        with self.tasks_lock:
+            if robot_id not in self.robot_tasks:
+                self.robot_tasks[robot_id] = {
+                    'state': TASK_STATE_GOING_TO_PICKUP,
+                    'package_id': package_id,
+                    'pickup': pickup,
+                    'delivery': delivery,
+                    'tasks': []
+                }
+            else:
+                # Add to task queue
+                self.robot_tasks[robot_id]['tasks'].append((package_id, pickup, delivery))
+
+        self.get_logger().info(
+            f'Robot {robot_id} assigned package {package_id}: '
+            f'pickup ({pickup[0]:.2f}, {pickup[1]:.2f}) -> '
+            f'delivery ({delivery[0]:.2f}, {delivery[1]:.2f})'
+        )
+
     def robot_pose_callback(self, robot_id, pose_stamped):
         """Handle incoming robot pose from any domain."""
         with self.poses_lock:
             self.robot_poses[robot_id] = pose_stamped
-        self.get_logger().info(
-            f'Robot {robot_id} pose: ({pose_stamped.pose.position.x:.2f}, {pose_stamped.pose.position.y:.2f})'
-        )
+
+        # Check if robot reached pickup or delivery point
+        self._check_task_progress(robot_id, pose_stamped)
+
+    def _check_task_progress(self, robot_id, pose_stamped):
+        """Check if robot has reached pickup or delivery location."""
+        threshold = 0.8  # Distance threshold in meters
+
+        with self.tasks_lock:
+            if robot_id not in self.robot_tasks:
+                return
+
+            task = self.robot_tasks[robot_id]
+            robot_x = pose_stamped.pose.position.x
+            robot_y = pose_stamped.pose.position.y
+
+            if task['state'] == TASK_STATE_GOING_TO_PICKUP:
+                # Check if reached pickup
+                pickup = task['pickup']
+                dist = ((robot_x - pickup[0])**2 + (robot_y - pickup[1])**2)**0.5
+                if dist < threshold:
+                    task['state'] = TASK_STATE_GOING_TO_DELIVERY
+                    self.get_logger().info(
+                        f'Robot {robot_id} PICKED UP package {task["package_id"]}'
+                    )
+
+            elif task['state'] == TASK_STATE_GOING_TO_DELIVERY:
+                # Check if reached delivery
+                delivery = task['delivery']
+                dist = ((robot_x - delivery[0])**2 + (robot_y - delivery[1])**2)**0.5
+                # Debug: log distance periodically
+                self.get_logger().debug(
+                    f'Robot {robot_id} dist to delivery ({delivery[0]:.2f}, {delivery[1]:.2f}): {dist:.2f}m'
+                )
+                if dist < threshold:
+                    self.get_logger().info(
+                        f'Robot {robot_id} DELIVERED package {task["package_id"]}'
+                    )
+                    # Check for next task in queue
+                    if task['tasks']:
+                        next_task = task['tasks'].pop(0)
+                        task['package_id'] = next_task[0]
+                        task['pickup'] = next_task[1]
+                        task['delivery'] = next_task[2]
+                        task['state'] = TASK_STATE_GOING_TO_PICKUP
+                    else:
+                        # No more tasks, remove from tracking
+                        del self.robot_tasks[robot_id]
 
     def status_callback(self, msg):
         """Handle incoming package status updates."""
@@ -509,6 +714,63 @@ class MarkerVisualizer(Node):
 
         return marker
 
+    def create_carried_package_marker(self, robot_pose, robot_id, package_id, marker_id):
+        """Create a small cube marker on robot showing it's carrying a package."""
+        markers = []
+
+        # Package cube
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = f'carried_package_{robot_id}'
+        marker.id = marker_id
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+
+        # Position on top of robot
+        marker.pose.position.x = robot_pose.pose.position.x
+        marker.pose.position.y = robot_pose.pose.position.y
+        marker.pose.position.z = 0.4
+        marker.pose.orientation.w = 1.0
+
+        # Small cube
+        marker.scale.x = 0.15
+        marker.scale.y = 0.15
+        marker.scale.z = 0.15
+
+        # Brown/orange color for package
+        marker.color.r = 0.8
+        marker.color.g = 0.5
+        marker.color.b = 0.2
+        marker.color.a = 1.0
+        markers.append(marker)
+
+        # Package ID label
+        label = Marker()
+        label.header.frame_id = 'map'
+        label.header.stamp = self.get_clock().now().to_msg()
+        label.ns = f'package_label_{robot_id}'
+        label.id = marker_id + 1
+        label.type = Marker.TEXT_VIEW_FACING
+        label.action = Marker.ADD
+
+        label.pose.position.x = robot_pose.pose.position.x
+        label.pose.position.y = robot_pose.pose.position.y
+        label.pose.position.z = 0.6
+        label.pose.orientation.w = 1.0
+
+        label.text = f'#{package_id}'
+        label.scale.z = 0.15
+
+        # White text
+        label.color.r = 1.0
+        label.color.g = 1.0
+        label.color.b = 1.0
+        label.color.a = 1.0
+        markers.append(label)
+
+        return markers
+
     def publish_markers(self):
         """Publish all markers."""
         marker_array = MarkerArray()
@@ -592,6 +854,28 @@ class MarkerVisualizer(Node):
                 )
                 marker_id += 1
 
+        # 5. Carried package markers (only when robot is delivering)
+        with self.tasks_lock:
+            robot_poses_copy = {}
+            with self.poses_lock:
+                robot_poses_copy = dict(self.robot_poses)
+
+            for robot_id, task in self.robot_tasks.items():
+                if robot_id not in robot_poses_copy:
+                    continue
+
+                robot_pose = robot_poses_copy[robot_id]
+                is_pickup = (task['state'] == TASK_STATE_GOING_TO_PICKUP)
+                package_id = task['package_id']
+
+                # Show package on robot only when delivering (after pickup)
+                if not is_pickup:
+                    pkg_markers = self.create_carried_package_marker(
+                        robot_pose, robot_id, package_id, marker_id
+                    )
+                    marker_array.markers.extend(pkg_markers)
+                    marker_id += len(pkg_markers)
+
         # Publish
         self.marker_pub.publish(marker_array)
 
@@ -607,6 +891,8 @@ def main(args=None):
     finally:
         # Stop all domain bridges
         for bridge in node.domain_bridges:
+            bridge.stop()
+        for bridge in node.win_bid_bridges:
             bridge.stop()
         node.destroy_node()
         rclpy.shutdown()
