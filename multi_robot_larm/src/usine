@@ -7,9 +7,6 @@ from rclpy.executors import MultiThreadedExecutor
 from random import random
 from multi_robot_larm.msg import Bid, Package
 from geometry_msgs.msg import PoseStamped
-import yaml
-import sys
-import argparse
 
 
 # ==========================================================
@@ -54,8 +51,8 @@ class FactoryNode(Node):
 
         msg = Package()
         msg.id = colis_id
-        msg.departure =arrival
-        msg.arrival= delivery
+        msg.departure = delivery
+        msg.arrival= arrival
         #msg.data = f"{colis_id}, {arrival}, {delivery}"
         
         self.points_pub.publish(msg)
@@ -154,8 +151,8 @@ class Usine:
         a = auction["arrival"]
         msg = Package()
         msg.id = colis_id
-        msg.departure = d
-        msg.arrival = a
+        msg.departure = a
+        msg.arrival = d
         pub = self.result_publishers[winner_ros]
         pub(msg)
 
@@ -163,105 +160,61 @@ class Usine:
 # DATA GENERATION
 # ==========================================================
 
-def generate_packages(input_file, n=20):
-        #print(input_file)
-        with open(input_file) as stream:
-            try:
-                data = yaml.safe_load(stream)
-                #print(data.get('points'))
-                deliveries=[]
-                arrivals = []
-                for point in data.get('points'):
-                    if 'Arrival' in point.get('id'):
-                        #print("--------------")
-                        #print(f"point :{point}")
-                        pointTMP = PoseStamped()
-                        pointTMP.pose.position.x = float(point.get('x'))
-                        pointTMP.pose.position.y = float(point.get('y'))
-                        pointTMP.pose.position.z = float(point.get('z'))
-                        pointTMP.pose.orientation.w = 1.0
-                        arrivals.append(pointTMP)
-                        #print(f"arrivals : {arrivals}")
-                        #print("--------------")
-                    elif 'Deposit' in point.get('id'):
-                        #print("--------------")
-                        #print(f"point :{point}")
-                        pointTMP1 = PoseStamped()
-                        pointTMP1.pose.position.x = float(point.get('x'))
-                        pointTMP1.pose.position.y = float(point.get('y'))
-                        pointTMP1.pose.position.z = float(point.get('z'))
-                        pointTMP1.pose.orientation.w = 1.0
-                        deliveries.append(pointTMP1)
-                        #print(f"deliveries : {deliveries}")
-                        #print("--------------")
+def generate_packages(n=20):
+    
+    pickup_A = PoseStamped()
+    pickup_A.pose.position.x = 1.73
+    pickup_A.pose.position.y = -0.46
+    pickup_A.pose.position.z = 0.0
+    #"1.73 -0.46 0.0"
+    #pickup_B = "1.66 0.60 0.0"
 
-                '''#for 
-                pickup_A = PoseStamped()
-                pickup_A.pose.position.x = 1.73
-                pickup_A.pose.position.y = -0.46
-                pickup_A.pose.position.z = 0.0
-                #"1.73 -0.46 0.0"
-                #pickup_B = "1.66 0.60 0.0"
+    pickup_B = PoseStamped()
+    pickup_B.pose.position.x = 1.66
+    pickup_B.pose.position.y = 0.6
+    pickup_B.pose.position.z = 0.0
 
-                pickup_B = PoseStamped()
-                pickup_B.pose.position.x = 1.66
-                pickup_B.pose.position.y = 0.6
-                pickup_B.pose.position.z = 0.0
+    delivery1 = PoseStamped()
+    delivery1.pose.position.x = -5.3
+    delivery1.pose.position.y = 0.84
+    delivery1.pose.position.z = 0.0
 
-                delivery1 = PoseStamped()
-                delivery1.pose.position.x = -5.3
-                delivery1.pose.position.y = 0.84
-                delivery1.pose.position.z = 0.0
+    delivery2 = PoseStamped()
+    delivery2.pose.position.x = -0.5
+    delivery2.pose.position.y = -2.15
+    delivery2.pose.position.z = 0.0
 
-                delivery2 = PoseStamped()
-                delivery2.pose.position.x = -0.5
-                delivery2.pose.position.y = -2.15
-                delivery2.pose.position.z = 0.0
+    delivery3 = PoseStamped()
+    delivery3.pose.position.x = -4.6
+    delivery3.pose.position.y = -2.15
+    delivery3.pose.position.z = 0.0
 
-                delivery3 = PoseStamped()
-                delivery3.pose.position.x = -4.6
-                delivery3.pose.position.y = -2.15
-                delivery3.pose.position.z = 0.0'''
+    '''deliveries = [
+        "-5.3 0.84 0.0",
+        "-0.5 -2.15 0.0",
+        "-4.6 -2.47 0.0",
+    ]'''
+    deliveries=[delivery1,delivery2,delivery3]
 
-                '''deliveries = [
-                    "-5.3 0.84 0.0",
-                    "-0.5 -2.15 0.0",
-                    "-4.6 -2.47 0.0",
-                ]'''
-                #deliveries=[delivery1,delivery2,delivery3]
+    messages = []
 
-                messages = []
-                #print(f"deliveries : {deliveries}")
-                #print(f"arrivals : {arrivals}")
-                for i in range(n):
-                    #pickup_A if random() < 0.5 else pickup_B
-                    arrival = arrivals[int(random() * len(arrivals))]
-                    delivery = deliveries[int(random() * len(deliveries))]
-                    messages.append((i, arrival, delivery))
+    for i in range(n):
+        arrival = pickup_A if random() < 0.5 else pickup_B
+        delivery = deliveries[int(random() * len(deliveries))]
+        messages.append((i, arrival, delivery))
 
-                return messages
-            except yaml.YAMLError as exc:
-                print(exc)
-        
+    return messages
+
+
 # ==========================================================
 # MAIN
 # ==========================================================
 
 def main():
-    print(sys.argv)
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-file" , type=str)
-    args = parser.parse_args()
-    print(args)
-    try:
-        print(args.input_file)
-    except SyntaxError:
-        print("You need to give an input-file for the points")
     rclpy.init()
 
     usine = Usine(auction_duration=3.0)
-    messages = generate_packages(args.input_file,30)
+    messages = generate_packages(30)
 
     print(messages)
 
@@ -287,5 +240,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-#exemple of use ros2 run multi_robot_larm usine_calibration --input-file points.yaml
