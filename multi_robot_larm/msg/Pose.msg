@@ -1,2 +1,0 @@
-int64 ros_domain_id
-geometry_msgs/PoseStamped pose

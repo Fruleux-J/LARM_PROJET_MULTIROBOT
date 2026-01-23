@@ -1,3 +1,0 @@
-int64 id
-geometry_msgs/PoseStamped departure
-geometry_msgs/PoseStamped arrival
