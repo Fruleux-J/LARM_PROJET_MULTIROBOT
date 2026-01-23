@@ -1,11 +1,15 @@
+#!/usr/bin/python3
 import time
 import rclpy
 from rclpy.node import Node
 from rclpy.context import Context
 from rclpy.executors import MultiThreadedExecutor
-from std_msgs.msg import String
 from random import random
-
+from multi_robot_larm.msg import Bid, Package
+from geometry_msgs.msg import PoseStamped
+import yaml
+import sys
+import argparse
 
 # ==========================================================
 # ROS NODE
@@ -23,17 +27,17 @@ class FactoryNode(Node):
         context.init(domain_id=domain_id)
 
         super().__init__(f"usine_{domain_id}", context=context)
-
+        
         self.domain_id = domain_id
         self.messages = messages
         self.index = 0
         self.usine = usine
 
-        self.points_pub = self.create_publisher(String, "start_bid", 10)
-        self.result_pub = self.create_publisher(String, "win_bid", 10)
+        self.points_pub = self.create_publisher(Package, "start_bid", 10)
+        self.result_pub = self.create_publisher(Package, "win_bid", 10)
 
         self.create_subscription(
-            String,
+            Bid,
             "bid",
             self.on_enchere_received,
             10
@@ -47,32 +51,36 @@ class FactoryNode(Node):
     
         colis_id, arrival, delivery = self.messages[self.index]
 
-        msg = String()
-        msg.data = f"{colis_id}, {arrival}, {delivery}"
+        msg = Package()
+        msg.id = colis_id
+        msg.departure = delivery
+        msg.arrival= arrival
+        #msg.data = f"{colis_id}, {arrival}, {delivery}"
         
         self.points_pub.publish(msg)
 
         self.usine.start_auction(colis_id, arrival, delivery)
 
-        self.get_logger().info(f"[POINTS] {msg.data}")
+        self.get_logger().info(f"[POINTS] {msg}")
         self.index += 1
 
-    def on_enchere_received(self, msg: String):
+    def on_enchere_received(self, msg: Bid):
         try:
-            colis_id, ros_id, price = msg.data.split()
+            colis_id, ros_id, price = msg.id, msg.ros_domain_id, msg.cost
             self.usine.on_bid(
                 int(colis_id),
                 int(ros_id),
                 float(price)
             )
         except ValueError:
-            self.get_logger().error(f"Message enchere invalide: {msg.data}")
+            self.get_logger().error(f"Message enchere invalide: {msg}")
 
-    def publish_result(self, data: str):
-        msg = String()
-        msg.data = data
+    def publish_result(self, data: Package): 
+        msg = data
         self.result_pub.publish(msg)
         self.get_logger().info(f"[RESULT] {data}")
+
+    
 
 
 # ==========================================================
@@ -145,38 +153,98 @@ class Usine:
     def publish_result(self, colis_id, auction, winner_ros):
         d = auction["delivery"]
         a = auction["arrival"]
-
-        msg = (
-            f"{colis_id}, "
-            f"{d}, "
-            f"{a},"
-        )
-
+        msg = Package()
+        msg.id = colis_id
+        msg.departure = a
+        msg.arrival = d
         pub = self.result_publishers[winner_ros]
         pub(msg)
+    
+def generate_packages(input_file, n=20):
+        #print(input_file)
+        with open(input_file) as stream:
+            try:
+                data = yaml.safe_load(stream)
+                #print(data.get('points'))
+                deliveries=[]
+                arrivals = []
+                for point in data.get('points'):
+                    if 'Arrival' in point.get('id'):
+                        #print("--------------")
+                        #print(f"point :{point}")
+                        pointTMP = PoseStamped()
+                        pointTMP.pose.position.x = float(point.get('x'))
+                        pointTMP.pose.position.y = float(point.get('y'))
+                        pointTMP.pose.position.z = float(point.get('z'))
+                        pointTMP.pose.orientation.w = 1.0
+                        arrivals.append(pointTMP)
+                        #print(f"arrivals : {arrivals}")
+                        #print("--------------")
+                    elif 'Deposit' in point.get('id'):
+                        #print("--------------")
+                        #print(f"point :{point}")
+                        pointTMP1 = PoseStamped()
+                        pointTMP1.pose.position.x = float(point.get('x'))
+                        pointTMP1.pose.position.y = float(point.get('y'))
+                        pointTMP1.pose.position.z = float(point.get('z'))
+                        pointTMP1.pose.orientation.w = 1.0
+                        deliveries.append(pointTMP1)
+                        #print(f"deliveries : {deliveries}")
+                        #print("--------------")
+
+                '''#for 
+                pickup_A = PoseStamped()
+                pickup_A.pose.position.x = 1.73
+                pickup_A.pose.position.y = -0.46
+                pickup_A.pose.position.z = 0.0
+                #"1.73 -0.46 0.0"
+                #pickup_B = "1.66 0.60 0.0"
+
+                pickup_B = PoseStamped()
+                pickup_B.pose.position.x = 1.66
+                pickup_B.pose.position.y = 0.6
+                pickup_B.pose.position.z = 0.0
+
+                delivery1 = PoseStamped()
+                delivery1.pose.position.x = -5.3
+                delivery1.pose.position.y = 0.84
+                delivery1.pose.position.z = 0.0
+
+                delivery2 = PoseStamped()
+                delivery2.pose.position.x = -0.5
+                delivery2.pose.position.y = -2.15
+                delivery2.pose.position.z = 0.0
+
+                delivery3 = PoseStamped()
+                delivery3.pose.position.x = -4.6
+                delivery3.pose.position.y = -2.15
+                delivery3.pose.position.z = 0.0'''
+
+                '''deliveries = [
+                    "-5.3 0.84 0.0",
+                    "-0.5 -2.15 0.0",
+                    "-4.6 -2.47 0.0",
+                ]'''
+                #deliveries=[delivery1,delivery2,delivery3]
+
+                messages = []
+                #print(f"deliveries : {deliveries}")
+                #print(f"arrivals : {arrivals}")
+                for i in range(n):
+                    #pickup_A if random() < 0.5 else pickup_B
+                    arrival = arrivals[int(random() * len(arrivals))]
+                    delivery = deliveries[int(random() * len(deliveries))]
+                    messages.append((i, arrival, delivery))
+
+                return messages
+            except yaml.YAMLError as exc:
+                print(exc)
+        
+
 
 # ==========================================================
 # DATA GENERATION
 # ==========================================================
-
-def generate_packages(n=20):
-    pickup_A = "1.73 -0.46 0.0"
-    pickup_B = "1.66 0.60 0.0"
-
-    deliveries = [
-        "-5.3 0.84 0.0",
-        "-0.5 -2.15 0.0",
-        "-4.6 -2.47 0.0",
-    ]
-
-    messages = []
-
-    for i in range(n):
-        arrival = pickup_A if random() < 0.5 else pickup_B
-        delivery = deliveries[int(random() * len(deliveries))]
-        messages.append((i, arrival, delivery))
-
-    return messages
 
 
 # ==========================================================
@@ -184,17 +252,39 @@ def generate_packages(n=20):
 # ==========================================================
 
 def main():
+    print(sys.argv)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-file" , type=str)
+    args = parser.parse_args()
+    print(args)
+    try:
+        print(args.input_file)
+    except SyntaxError:
+        print("You need to give an input-file for the points")
+
     rclpy.init()
 
     usine = Usine(auction_duration=3.0)
-    messages = generate_packages(30)
+    messages = generate_packages(args.input_file, 30)
 
-    print(messages)
+    #print(messages)
+    parserROS = argparse.ArgumentParser()
+    parserROS.add_argument("--domain-file" , type=str)
+    argsROS = parserROS.parse_args()
+    try:
+        print(argsROS.input_file)
+    except SyntaxError:
+        print("You need to give an ROS-file for the ROS_DOMAIN_ID of your robots")
 
-    nodes = [
+    nodes = []
+
+    for ROS_DOMAIN_ID in argsROS.input_file.get('robots'):
+        nodes.append(FactoryNode(int(ROS_DOMAIN_ID.get('ROS_DOMAIN_ID')), messages, usine, 6.0))
+    '''nodes = [
         FactoryNode(44, messages, usine, 6.0),
         FactoryNode(40, messages, usine, 6.0),
-    ]
+    ]'''
 
     executor = MultiThreadedExecutor()
     for node in nodes:
@@ -209,3 +299,7 @@ def main():
         for node in nodes:
             node.destroy_node()
         rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
