@@ -35,7 +35,7 @@ install( PROGRAMS src/robot DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS src/usine DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS src/calibration DESTINATION lib/${PROJECT_NAME} )
 install( PROGRAMS src/usine_calibration DESTINATION lib/${PROJECT_NAME} )
-
+install( PROGRAMS src/marker_visualizer DESTINATION lib/${PROJECT_NAME} )
 
 
 ament_package()
