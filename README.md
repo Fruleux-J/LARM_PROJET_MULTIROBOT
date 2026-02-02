@@ -136,6 +136,9 @@ After that, the robot will add the package in its waiting_list and start to move
 The usine program will create a node in each ROS_DOMAIN_ID and publish in topics /start_bid and win_bid, it will also subscribe to the topic /bid.
 The robot will do the reverse
 
+# Demo video
+
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/1PMUonG-rjs/0.jpg)](https://www.youtube.com/watch?v=1PMUonG-rjs)
 
 # Future work
 
